@@ -31,7 +31,7 @@ df['DayOfWeek'] = df.index.dayofweek
 df['IsWeekend'] = df['DayOfWeek'].isin([5, 6]).astype(int)
 
 # Calculate daily energy consumption in kWh
-df['Daily_Energy_KWh'] = df['Global_active_power'] * 1000 / 60
+df['Daily_Energy_KWh'] = df['Global_active_power'] / 60
 df['Daily_Energy_KWh'] = df['Daily_Energy_KWh'].resample('D').sum()
 
 # Drop unnecessary columns
