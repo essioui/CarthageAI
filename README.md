@@ -290,131 +290,173 @@ Overall, the dataset presents the typical characteristics of an energy consumpti
 
 ---
 
-## Data Preprocessing and Feature Engineering
+# Data Preprocessing and Feature Engineering
 
-After completing the exploratory data analysis, the dataset is prepared for machine learning. The objective of this stage is to transform the original minute-level measurements into a clean daily dataset enriched with temporal and weather-related features.
+After completing the exploratory data analysis, the raw dataset is transformed into a clean and structured dataset suitable for machine learning and deep learning models.
 
-The preprocessing pipeline consists of the following steps.
+The preprocessing pipeline aims to:
 
-1. Missing Values Treatment
+- Handle missing observations while preserving temporal continuity.
+- Generate informative temporal features.
+- Convert minute-level power measurements into daily energy consumption.
+- Integrate external weather information.
+- Produce a final processed dataset ready for model training.
 
-Approximately 1.25% of the electrical measurements contain missing values. Since the dataset forms a continuous one-minute time series without missing timestamps, missing observations are estimated using time-based interpolation.
+The complete preprocessing workflow is summarized below.
 
-This approach preserves the temporal continuity of the series while avoiding unnecessary data loss.
+| Step                         | Description                                                        |
+| ---------------------------- | ------------------------------------------------------------------ |
+| Missing Value Treatment      | Fill missing measurements using time-based interpolation           |
+| Temporal Feature Engineering | Extract calendar-related features from the datetime index          |
+| Daily Energy Aggregation     | Convert minute-level power into daily household energy consumption |
+| Feature Selection            | Remove unnecessary electrical variables                            |
+| Weather Data Integration     | Add daily weather observations from Meteostat                      |
+| Export Processed Dataset     | Save the final dataset for machine learning                        |
 
+---
+
+## 1. Missing Value Treatment
+
+Approximately **1.25%** of the electrical measurements contain missing values. Since the dataset represents a continuous one-minute time series with no missing timestamps, missing observations are estimated using **time-based interpolation**.
+
+Unlike deleting observations, interpolation preserves the continuity of the time series and minimizes information loss.
+
+```python
 df = df.interpolate(method="time")
+```
 
-2. Temporal Feature Engineering
+---
 
-Several calendar-based features are extracted from the Datetime index to help machine learning models capture seasonal and weekly consumption patterns.
+## 2. Temporal Feature Engineering
 
-The following temporal features are generated:
+Electricity consumption usually depends on calendar-related patterns such as weekdays, weekends, months, and seasons.
 
-Feature Description
-Day Day of the month
-Month Month of the year
-Year Calendar year
-DayOfWeek Day of the week (Monday = 0)
-IsWeekend Binary indicator for weekends (Saturday and Sunday)
+To help the forecasting models learn these temporal behaviors, several features are extracted from the `Datetime` index.
 
-These features allow models to learn recurring consumption behaviors associated with different days, months, and weekends.
+| Feature     | Description                             |
+| ----------- | --------------------------------------- |
+| `Day`       | Day of the month                        |
+| `Month`     | Month of the year                       |
+| `Year`      | Calendar year                           |
+| `DayOfWeek` | Day of the week (Monday = 0)            |
+| `IsWeekend` | Weekend indicator (Saturday and Sunday) |
 
-Example:
-
+```python
 df["Day"] = df.index.day
 df["Month"] = df.index.month
 df["Year"] = df.index.year
 df["DayOfWeek"] = df.index.dayofweek
 df["IsWeekend"] = df["DayOfWeek"].isin([5, 6]).astype(int)
+```
 
-3. Daily Energy Consumption Calculation
+These engineered features allow machine learning models to capture weekly and seasonal consumption patterns.
 
-The original dataset records active power (Global_active_power) every minute in kilowatts (kW). Since the forecasting task targets daily household energy consumption, the minute-level power measurements are converted into energy and aggregated by day.
+---
 
-For each one-minute observation:
+## 3. Daily Energy Consumption Aggregation
 
-Energy
-minute
-​
+The original dataset records **active power (`Global_active_power`)** every minute in **kilowatts (kW)**.
 
-(KWh)=Global_active_power / 60
+Since the forecasting task focuses on **daily household energy consumption**, the minute-level measurements are converted into energy using:
 
-    ​
+\[
+Energy*{minute}(kWh)=Power*{minute}(kW)\times\frac{1}{60}
+\]
 
-Finally, the daily energy consumption is obtained by summing all minute-level energy values for each day.
+The total daily energy consumption is then obtained by summing all one-minute energy values within each day.
 
+```python
 df["Daily_Energy_KWh"] = df["Global_active_power"] / 60
+
 df["Daily_Energy_KWh"] = (
-df["Daily_Energy_KWh"]
-.resample("D")
-.sum()
+    df["Daily_Energy_KWh"]
+    .resample("D")
+    .sum()
 )
+```
 
-The resulting target variable represents the total household energy consumption for each day.
+The resulting variable, **Daily_Energy_KWh**, becomes the prediction target for the forecasting models.
 
-4. Feature Selection
+---
 
-After generating the target variable, several original electrical measurements are removed because they are no longer required for the forecasting task.
+## 4. Feature Selection
 
-The following features are dropped:
+After creating the target variable, several original electrical measurements are removed because they are no longer required.
 
-Global_active_power
-Global_reactive_power
-Global_intensity
-Voltage
-Sub_metering_1
-Sub_metering_2
-Sub_metering_3
+The removed features are:
 
-The remaining dataset contains only the engineered temporal features together with the daily energy consumption target.
+- `Global_active_power`
+- `Global_reactive_power`
+- `Global_intensity`
+- `Voltage`
+- `Sub_metering_1`
+- `Sub_metering_2`
+- `Sub_metering_3`
 
-5. Weather Data Integration
+Removing redundant variables simplifies the dataset while keeping the most informative features for forecasting.
 
-Electricity consumption is strongly influenced by weather conditions. To incorporate environmental information, daily weather observations are downloaded from the Meteostat database using the geographic coordinates of Sceaux, France, where the household is located.
+---
 
-The following weather variables are added:
+## 5. Weather Data Integration
 
-Feature Description
-tavg Average daily temperature (°C)
-tmin Minimum daily temperature (°C)
-tmax Maximum daily temperature (°C)
+Household electricity consumption is strongly influenced by weather conditions.
 
-The weather data is merged with the daily energy consumption dataset using the date as the common index.
+To capture this relationship, daily weather observations are retrieved from the **Meteostat** database using the geographic coordinates of **Sceaux, France**, where the household is located.
 
+The following weather variables are incorporated into the dataset.
+
+| Feature | Description                    |
+| ------- | ------------------------------ |
+| `tavg`  | Average daily temperature (°C) |
+| `tmin`  | Minimum daily temperature (°C) |
+| `tmax`  | Maximum daily temperature (°C) |
+
+```python
 sceaux = Point(48.7763, 2.2903)
 
 weather = Daily(sceaux, start_date, end_date).fetch()
-weather = weather[["tavg", "tmin", "tmax"]]
+
+weather = weather[
+    ["tavg", "tmin", "tmax"]
+]
 
 df = df.merge(
-weather,
-left_index=True,
-right_index=True,
-how="left"
+    weather,
+    left_index=True,
+    right_index=True,
+    how="left"
 )
+```
 
-Adding weather variables enables forecasting models to learn the relationship between temperature and household electricity consumption.
+Including weather variables enables forecasting models to better explain variations in household electricity demand caused by environmental conditions.
 
-6. Final Processed Dataset
+---
 
-After preprocessing and feature engineering, the final dataset is saved for use in machine learning experiments.
+## 6. Final Processed Dataset
 
+The processed dataset is exported for subsequent machine learning experiments.
+
+```python
 df.to_csv(
-"../data/processed/household_power_consumption_processed.csv",
-index=True
+    "../data/processed/household_power_consumption_processed.csv",
+    index=True
 )
+```
 
-The processed dataset contains one observation per day and includes:
+### Final Dataset
 
-Feature
-Daily_Energy_KWh
-Day
-Month
-Year
-DayOfWeek
-IsWeekend
-tavg
-tmin
-tmax
+The resulting dataset contains one observation per day and includes both temporal and weather-related features.
 
-This final dataset serves as the input for the forecasting models developed in the next stage of the project.
+| Feature            | Type      | Description                        |
+| ------------------ | --------- | ---------------------------------- |
+| `Daily_Energy_KWh` | Target    | Daily household energy consumption |
+| `Day`              | Numerical | Day of the month                   |
+| `Month`            | Numerical | Month of the year                  |
+| `Year`             | Numerical | Calendar year                      |
+| `DayOfWeek`        | Numerical | Day of the week                    |
+| `IsWeekend`        | Binary    | Weekend indicator                  |
+| `tavg`             | Numerical | Average daily temperature          |
+| `tmin`             | Numerical | Minimum daily temperature          |
+| `tmax`             | Numerical | Maximum daily temperature          |
+
+The final processed dataset is clean, complete, and enriched with temporal and weather-related information. It serves as the input for the machine learning and deep learning models developed in the next stage of this project.
