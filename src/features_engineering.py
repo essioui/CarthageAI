@@ -23,16 +23,20 @@ df = (
 # Interpolate missing values using time-based interpolation
 df = df.interpolate(method='time')
  
-# features engineering
+# Calculate daily energy consumption in kWh
+df['Daily_Energy_KWh'] = df['Global_active_power'] / 60
+df = df.resample('D').sum()
+
+# Create date features AFTER resampling
 df['Day'] = df.index.day
 df['Month'] = df.index.month
 df['Year'] = df.index.year
 df['DayOfWeek'] = df.index.dayofweek
-df['IsWeekend'] = df['DayOfWeek'].isin([5, 6]).astype(int)
 
-# Calculate daily energy consumption in kWh
-df['Daily_Energy_KWh'] = df['Global_active_power'] / 60
-df['Daily_Energy_KWh'] = df['Daily_Energy_KWh'].resample('D').sum()
+df['IsWeekend'] = (
+    df['DayOfWeek'].isin([5,6])
+    .astype(int)
+)
 
 # Drop unnecessary columns
 df = df.drop(columns=['Global_intensity', 'Sub_metering_1', 'Sub_metering_2', 'Sub_metering_3', 'Global_active_power', 'Global_reactive_power', 'Voltage'])
@@ -54,6 +58,12 @@ weather = weather.fetch()
 # Select only the relevant columns
 weather = weather[['tavg', 'tmin', 'tmax']]
 
+# calculate missing average temperature
+weather['tavg'] = weather['tavg'].fillna(
+    (weather['tmin'] + weather['tmax']) / 2
+)
+
+
 # Merge the weather data with the original dataset
 df = df.merge(
     weather,
@@ -61,6 +71,10 @@ df = df.merge(
     right_index=True,
     how='left'
 )
+
+# Check for missing values and print the shape of the final dataset
+print(df.shape)
+print(df.isna().sum())
 
 # save file csv
 df.to_csv('../data/processed/household_power_consumption_processed.csv', index=True)
